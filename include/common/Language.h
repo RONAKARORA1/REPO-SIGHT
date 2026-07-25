@@ -1,0 +1,51 @@
+#pragma once
+ 
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <unordered_map>
+ 
+namespace cma {
+ 
+// Identifies which per-language front-end (Lexer/Parser pair) should
+// process a given source file.
+//
+// Phase 1 introduced this as scaffolding for the multi-language platform;
+// Phase 2 wired up Python; Phase 3 wires up Java.
+//
+// Deliberately a plain enum, not a polymorphic tag: dispatch on it is a
+// switch statement (see LanguageDispatch.h), not a virtual call, which
+// preserves the project's existing no-vtable, value-type style.
+enum class Language {
+    Cpp,
+    Python,
+    Java,
+};
+ 
+// Maps a file extension to the Language that should analyze it, or
+// nullopt if the extension isn't recognized by any front-end.
+//
+// This intentionally lives here, not in FileScanner: FileScanner's
+// documented responsibility is I/O and discovery only ("it has no
+// knowledge of tokens, lines, or metrics"); language identity is exactly
+// that kind of semantic knowledge, so it's kept out of FileScanner and
+// composed in by main.cpp instead. FileScanner still decides which files
+// are *worth reading* (its own, separately-extended extension set); this
+// decides *which front-end* reads them.
+[[nodiscard]] inline std::optional<Language> detectLanguage(
+    const std::filesystem::path& path) noexcept {
+    static const std::unordered_map<std::string, Language> kExtensionMap = {
+        {".cpp", Language::Cpp}, {".cc",  Language::Cpp},
+        {".cxx", Language::Cpp}, {".c++", Language::Cpp},
+        {".h",   Language::Cpp}, {".hpp", Language::Cpp},
+        {".hxx", Language::Cpp}, {".h++", Language::Cpp},
+        {".py",  Language::Python},
+        {".java", Language::Java},
+    };
+    const auto it = kExtensionMap.find(path.extension().string());
+    if (it == kExtensionMap.end()) return std::nullopt;
+    return it->second;
+}
+ 
+} // namespace cma
+ 
