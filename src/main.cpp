@@ -1,0 +1,154 @@
+#include "common/Language.h"
+#include "common/LanguageDispatch.h"
+#include "filesystem/FileScanner.h"
+#include "metrics/DependencyGraph.h"
+#include "metrics/HotspotReport.h"
+#include "metrics/MetricsEngine.h"
+#include "metrics/ViolationReport.h"
+#include "parser/ParseResult.h"
+#include "report/ReportGenerator.h"
+#include "rules/RuleDispatch.h"
+#include "vcs/GitHistory.h"
+ 
+#include <algorithm>
+#include <filesystem>
+#include <iostream>
+#include <optional>
+#include <string>
+ 
+namespace fs = std::filesystem;
+using namespace cma;
+ 
+struct Config {
+    fs::path    targetPath;
+    std::string outputFile;
+    std::string jsonFile;
+    std::string badgeFile;
+};
+ 
+static std::optional<Config> parseArgs(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: cma <path> [--out <report.txt>] [--json <report.json>] "
+                     "[--badge <badge.svg>]\n";
+        return std::nullopt;
+    }
+ 
+    Config cfg;
+    cfg.targetPath = argv[1];
+ 
+    for (int i = 2; i < argc - 1; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--out") {
+            cfg.outputFile = argv[i + 1];
+        } else if (arg == "--json") {
+            cfg.jsonFile = argv[i + 1];
+        } else if (arg == "--badge") {
+            cfg.badgeFile = argv[i + 1];
+        }
+    }
+    return cfg;
+}
+ 
+int main(int argc, char* argv[]) {
+    const auto cfg = parseArgs(argc, argv);
+    if (!cfg) return 1;
+ 
+    const FileScanner scanner(cfg->targetPath);
+    const std::vector<fs::path> files = scanner.scan();
+ 
+    if (files.empty()) {
+        std::cerr << "No recognized source files found in: " << cfg->targetPath << '\n';
+        return 1;
+    }
+ 
+    std::cout << "Analyzing " << files.size() << " file(s)...\n";
+ 
+    MetricsEngine engine;
+    std::vector<Violation> violations;
+    int skipped = 0;
+ 
+    for (const auto& filepath : files) {
+        const auto source = FileScanner::readFile(filepath);
+        if (!source) {
+            std::cerr << "  [skip] cannot read: " << filepath << '\n';
+            ++skipped;
+            continue;
+        }
+ 
+        const auto lang = detectLanguage(filepath);
+        if (!lang) {
+            std::cerr << "  [skip] unrecognized language: " << filepath << '\n';
+            ++skipped;
+            continue;
+        }
+ 
+        const int lineCount =
+            static_cast<int>(std::count(source->begin(), source->end(), '\n')) + 1;
+ 
+        auto tokens = tokenizeSource(*lang, *source);
+        FileMetrics fm = parseTokens(*lang, tokens, lineCount);
+ 
+        // Phase 4 Sprint 3B: rule checks reuse the already-tokenized
+        // stream and already-computed FileMetrics -- no re-lexing, and
+        // this runs before fm is moved into engine.addFile() below.
+        auto fileViolations = checkRules(*lang, filepath.string(), tokens, fm);
+        violations.insert(violations.end(),
+                           std::make_move_iterator(fileViolations.begin()),
+                           std::make_move_iterator(fileViolations.end()));
+ 
+        engine.addFile(filepath.string(), std::move(fm));
+    }
+ 
+    if (skipped > 0)
+        std::cout << "Warning: skipped " << skipped << " unreadable file(s).\n";
+ 
+    std::sort(violations.begin(), violations.end(),
+              [](const Violation& a, const Violation& b) {
+                  if (a.path != b.path) return a.path < b.path;
+                  if (a.line != b.line) return a.line < b.line;
+                  return a.ruleId < b.ruleId;
+              });
+ 
+    const ProjectMetrics report = engine.compute();
+    ReportGenerator::printSummary(report, std::cout);
+ 
+    if (!cfg->outputFile.empty()) {
+        if (ReportGenerator::saveToFile(report, cfg->outputFile))
+            std::cout << "Report saved to: " << cfg->outputFile << '\n';
+        else
+            std::cerr << "Warning: could not write to: " << cfg->outputFile << '\n';
+    }
+ 
+    // JSON carries dependency graph (Sprint 2), hotspot data (Sprint 3),
+    // and rule violations (Sprint 3B) together -- one export surface,
+    // not a proliferating set of flags.
+    if (!cfg->jsonFile.empty()) {
+        const DependencyGraph depGraph = engine.buildDependencyGraph();
+ 
+        GitHistory git(cfg->targetPath);
+        if (!git.collect()) {
+            std::cerr << "Note: no git history found at " << cfg->targetPath
+                       << " -- hotspot data will be empty in the JSON report.\n";
+        }
+        const HotspotReport hotspots = engine.buildHotspotReport(git);
+ 
+        ViolationReport violationReport;
+        violationReport.violations = violations;
+ 
+        if (ReportGenerator::saveJsonToFile(report, engine.files(), depGraph, hotspots,
+                                             violationReport, cfg->jsonFile))
+            std::cout << "JSON report saved to: " << cfg->jsonFile << '\n';
+        else
+            std::cerr << "Warning: could not write JSON to: " << cfg->jsonFile << '\n';
+    }
+ 
+    if (!cfg->badgeFile.empty()) {
+        if (ReportGenerator::saveBadgeToFile(report, cfg->badgeFile))
+            std::cout << "Badge saved to: " << cfg->badgeFile << '\n';
+        else
+            std::cerr << "Warning: could not write badge to: " << cfg->badgeFile << '\n';
+    }
+ 
+    return 0;
+}
+ 
