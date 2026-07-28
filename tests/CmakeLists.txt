@@ -16,6 +16,7 @@ add_executable(cma_tests
     unit/test_dependency_graph.cpp
     unit/test_hotspot_and_health_score.cpp
     unit/test_rule_violations.cpp
+    unit/test_html_report.cpp
     # NOT present -- see MISSING_FILES.md: test_lexer.cpp, test_parser.cpp,
     # test_metrics_engine.cpp, test_file_scanner.cpp (Phase 0, 75 cases)
     # and integration/test_golden_reports.cpp (7 cases) were never
