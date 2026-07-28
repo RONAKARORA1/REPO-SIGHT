@@ -1,4 +1,3 @@
-cat > /workspaces/REPO-SIGHT/tests/CMakeLists.txt << 'EOF'
 include(FetchContent)
 FetchContent_Declare(
     googletest
