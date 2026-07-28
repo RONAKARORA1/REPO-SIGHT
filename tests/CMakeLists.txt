@@ -34,4 +34,3 @@ target_include_directories(cma_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 include(GoogleTest)
 gtest_discover_tests(cma_tests)
-EOF
