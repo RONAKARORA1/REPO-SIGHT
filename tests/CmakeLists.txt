@@ -1,3 +1,4 @@
+cat > /workspaces/REPO-SIGHT/tests/CMakeLists.txt << 'EOF'
 include(FetchContent)
 FetchContent_Declare(
     googletest
@@ -6,7 +7,7 @@ FetchContent_Declare(
 )
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
- 
+
 add_executable(cma_tests
     unit/test_python_lexer.cpp
     unit/test_python_parser.cpp
@@ -17,13 +18,8 @@ add_executable(cma_tests
     unit/test_hotspot_and_health_score.cpp
     unit/test_rule_violations.cpp
     unit/test_html_report.cpp
-    # NOT present -- see MISSING_FILES.md: test_lexer.cpp, test_parser.cpp,
-    # test_metrics_engine.cpp, test_file_scanner.cpp (Phase 0, 75 cases)
-    # and integration/test_golden_reports.cpp (7 cases) were never
-    # uploaded to project knowledge in any session. Add them back here
-    # once sourced from the real repo.
 )
- 
+
 target_link_libraries(cma_tests PRIVATE
     gtest_main
     cma_lexer
@@ -34,9 +30,10 @@ target_link_libraries(cma_tests PRIVATE
     cma_rules
     cma_report
 )
- 
+
 target_include_directories(cma_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
- 
+
 include(GoogleTest)
 gtest_discover_tests(cma_tests)
+EOF
  
